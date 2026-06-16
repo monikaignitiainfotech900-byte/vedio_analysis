@@ -1,4 +1,3 @@
-# main.py
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from deepface import DeepFace
@@ -11,13 +10,17 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:4200",                                          # local dev
+        "http://localhost:8080",                                          # local alt port
+        "https://ai-exam-frontend-production.up.railway.app",            # Railway frontend
+        "*"                                                               # fallback (remove in production)
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ✅ FIXED: Use temp folder that works on ANY server (Linux/Windows/Railway)
 UPLOAD_FOLDER = os.path.join(os.getcwd(), "temp_uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
@@ -32,7 +35,6 @@ async def analyze_video(file: UploadFile = File(...)):
 
     cap = cv2.VideoCapture(file_path)
     if not cap.isOpened():
-        # ✅ FIXED: Clean up file if video can't open
         os.remove(file_path)
         return {"error": "Could not open video file"}
 
@@ -64,7 +66,6 @@ async def analyze_video(file: UploadFile = File(...)):
 
     cap.release()
 
-    # ✅ FIXED: Delete temp file after processing to save server space
     if os.path.exists(file_path):
         os.remove(file_path)
 
