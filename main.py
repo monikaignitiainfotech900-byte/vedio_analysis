@@ -153,3 +153,40 @@ async def analyze_video(file: UploadFile = File(...)):
 @app.get("/health")
 def health():
     return {"status": "Face Analysis Service is running"}
+@app.get("/analysis-results")
+def get_results():
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, video_name, dominant_emotion, total_analyzed_frames,
+                   happy_frames, neutral_frames, sad_frames, angry_frames,
+                   fear_frames, disgust_frames, surprise_frames, created_at
+            FROM video_analysis
+            ORDER BY created_at DESC
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        results = []
+        for row in rows:
+            results.append({
+                "id": row[0],
+                "video_name": row[1],
+                "dominant_emotion": row[2],
+                "total_analyzed_frames": row[3],
+                "happy_frames": row[4],
+                "neutral_frames": row[5],
+                "sad_frames": row[6],
+                "angry_frames": row[7],
+                "fear_frames": row[8],
+                "disgust_frames": row[9],
+                "surprise_frames": row[10],
+                "created_at": str(row[11])
+            })
+
+        return {"data": results, "total": len(results)}
+
+    except Exception as e:
+        return {"error": str(e)}
