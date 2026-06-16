@@ -5,12 +5,19 @@ import cv2
 import os
 import shutil
 import uuid
+import psycopg2
+from urllib.parse import urlparse
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:4200",
+        "http://localhost:8080",
+        "https://ai-exam-frontend-production.up.railway.app",
+        "*"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -19,8 +26,50 @@ app.add_middleware(
 UPLOAD_FOLDER = os.path.join(os.getcwd(), "temp_uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+# ✅ PostgreSQL connection using DATABASE_URL
+def get_db():
+    database_url = os.getenv("DATABASE_URL")
+    url = urlparse(database_url)
+    return psycopg2.connect(
+        host=url.hostname,
+        port=url.port,
+        database=url.path[1:],
+        user=url.username,
+        password=url.password
+    )
+
+# ✅ Create table on startup
+@app.on_event("startup")
+def create_table():
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS video_analysis (
+                id SERIAL PRIMARY KEY,
+                video_name VARCHAR(255),
+                dominant_emotion VARCHAR(50),
+                total_analyzed_frames INT,
+                happy_frames INT,
+                neutral_frames INT,
+                sad_frames INT,
+                angry_frames INT,
+                fear_frames INT,
+                disgust_frames INT,
+                surprise_frames INT,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("✅ Table created successfully")
+    except Exception as e:
+        print(f"❌ Table creation error: {e}")
+
 @app.post("/analyze-video")
 async def analyze_video(file: UploadFile = File(...)):
+
     original_name = file.filename or f"video_{uuid.uuid4()}.mp4"
     file_path = os.path.join(UPLOAD_FOLDER, original_name)
 
@@ -65,6 +114,29 @@ async def analyze_video(file: UploadFile = File(...)):
 
     dominant = max(emotion_counts, key=emotion_counts.get) if total_analyzed > 0 else "neutral"
 
+    # ✅ Save to PostgreSQL
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO video_analysis (
+                video_name, dominant_emotion, total_analyzed_frames,
+                happy_frames, neutral_frames, sad_frames,
+                angry_frames, fear_frames, disgust_frames, surprise_frames
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            original_name, dominant, total_analyzed,
+            emotion_counts["happy"], emotion_counts["neutral"], emotion_counts["sad"],
+            emotion_counts["angry"], emotion_counts["fear"],
+            emotion_counts["disgust"], emotion_counts["surprise"]
+        ))
+        conn.commit()
+        cur.close()
+        conn.close()
+        print(f"✅ Data saved for video: {original_name}")
+    except Exception as e:
+        print(f"❌ DB Error: {e}")
+
     return {
         "video": original_name,
         "dominant_emotion": dominant,
@@ -81,8 +153,3 @@ async def analyze_video(file: UploadFile = File(...)):
 @app.get("/health")
 def health():
     return {"status": "Face Analysis Service is running"}
-
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
